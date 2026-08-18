@@ -1,0 +1,9 @@
+# WebCompressor Pro requirements
+# Pure Python — no external dependencies required
+# Optional: pytest for testing
+
+# No required dependencies — uses only Python standard library
+
+[dev]
+pytest>=7.0.0
+pytest-cov>=4.0.0
