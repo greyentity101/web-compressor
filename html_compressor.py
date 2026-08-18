@@ -34,10 +34,10 @@ class AdvancedHTMLCompressor(BaseCompressor):
 
     def _minify_inline(self, code: str, warnings: List[str]) -> str:
         from css_compressor import AdvancedCSSCompressor
-        from js_compressor import JSCompressor
+        from js_compressor import AdvancedJSCompressor
 
         css_comp = AdvancedCSSCompressor(aggressive=self.aggressive)
-        js_comp = JSCompressor(aggressive=self.aggressive)
+        js_comp = AdvancedJSCompressor(aggressive=self.aggressive)
 
         def minify_style(m):
             css = m.group(1)

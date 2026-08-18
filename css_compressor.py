@@ -198,7 +198,7 @@ class AdvancedCSSCompressor(BaseCompressor):
         for name, hex_val in sorted(
             self.COLOR_MAP.items(), key=lambda x: len(x[1]), reverse=True
         ):
-            if len(name) < len(hex_val):
+            if len(name) > len(hex_val):
                 code = re.sub(r"\b" + re.escape(name) + r"\b", hex_val, code)
 
         # Shorten #rrggbb to #rgb

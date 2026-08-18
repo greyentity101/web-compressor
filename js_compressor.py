@@ -192,8 +192,10 @@ class AdvancedJSCompressor(BaseCompressor):
         code = re.sub(r"\s+:", ":", code)
         # Remove space after opening paren/bracket
         code = re.sub(r"([({\[])\s+", r"\1", code)
-        # Remove space before closing paren/bracket
-        code = re.sub(r"\s+([)}\])", r"\1", code)
+        # Remove space before closing paren/bracket/brace
+        code = re.sub(r"\s+\)", ")", code)
+        code = re.sub(r"\s+\}", "}", code)
+        code = re.sub(r"\s+\]", "]", code)
         return code
 
     def _shorten_numbers(self, code: str) -> str:
