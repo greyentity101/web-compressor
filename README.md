@@ -1,131 +1,70 @@
 # WebCompressor Pro
 
-> **Advanced web asset compaction algorithm that surpasses industry standards.**
-
-WebCompressor Pro is a semantic-aware, multi-pass compression engine for HTML, CSS, and JavaScript. Unlike standard minifiers that operate on raw text, it understands code structure to deliver higher compression ratios without breaking functionality.
-
----
+Production-grade, semantic-preserving web asset compressor for JavaScript, CSS, and HTML.
 
 ## Features
 
-### JavaScript Compression
-- **AST-inspired scope analysis** — tracks variable scopes to safely rename local variables
-- **Constant folding** — evaluates simple arithmetic at compile time
-- **Dead code elimination** — removes empty statements and unreachable code
-- **Boolean simplification** — De Morgan's laws, `!!x` → `x`, `=== true` → identity
-- **Number optimization** — `1.0` → `1`, `0.5` → `.5`, scientific notation
-- **String merging** — concatenates adjacent string literals
-- **Operator optimization** — `x = x + 1` → `x += 1`
-
-### CSS Compression
-- **Named color shortening** — `white` → `#fff`, `black` → `#000`
-- **Hex shortening** — `#rrggbb` → `#rgb` where possible
-- **RGB to hex** — `rgb(255,255,255)` → `#fff`
-- **Zero value removal** — `0px`, `0em` → `0`
-- **Font weight shortening** — `normal` → `400`, `bold` → `700`
-- **Selector deduplication** — merges duplicate selectors and their properties
-- **Property deduplication** — removes duplicate properties within rules
-
-### HTML Compression
-- **Semantic comment removal** — strips HTML comments except conditional
-- **Inline asset minification** — recursively compresses inline `<style>` and `<script>`
-- **Attribute optimization** — removes optional quotes, shortens boolean attributes
-- **Whitespace collapse** — removes inter-tag whitespace safely
-- **Doctype shortening** — `<!DOCTYPE html>`
-
----
+- **JavaScript**: Token-aware minification protecting strings, regex literals, template literals, and comments. Safe number optimization, ASI-aware whitespace compaction, and dead code removal.
+- **CSS**: Bidirectional color optimization (named colors ↔ hex ↔ 3-digit hex), zero-unit stripping, font-weight numeric conversion, selector/rule compaction, and url() preservation.
+- **HTML**: Semantic preservation of `<pre>`, `<code>`, and `<textarea>` tags. Inline `<style>` and `<script>` minification. Boolean attribute collapsing. Conditional comment preservation. Doctype shortening.
 
 ## Installation
 
 ```bash
-git clone https://github.com/greyentity101/web-compressor.git
-cd web-compressor
-pip install -r requirements.txt
+pip install .
 ```
 
----
-
-## Usage
-
-### CLI
+## CLI Usage
 
 ```bash
 # Compress a single file
-python -m compressor.cli index.html
+web-compressor input.js -o output.js
 
-# Compress a directory
-python -m compressor.cli ./dist --extensions .js .css .html
+# Compress with auto-detection
+web-compressor index.html -o index.min.html
 
-# Safe mode (no variable renaming)
-python -m compressor.cli ./dist --safe
+# Compress entire directory recursively
+web-compressor ./assets -o ./assets/min -r
 
-# JSON output
-python -m compressor.cli ./dist --json
+# Safe mode (disable aggressive optimizations)
+web-compressor input.js --safe
+
+# Display statistics
+web-compressor input.js --stats
 ```
 
-### Python API
+## Python API
 
 ```python
-from compressor import WebCompressor
+from compressor import WebCompressor, AssetType
 
-compressor = WebCompressor(aggressive=True)
+wc = WebCompressor(aggressive=True)
 
-# Single file
-result = compressor.compress_file('index.html')
-print(f"Compressed {result.original_size} → {result.compressed_size} bytes ({result.ratio*100:.1f}%)")
+# Compress string with auto-detection
+result = wc.compress_string("const x = 1; const y = 2;")
+print(result.output)          # "const x=1;const y=2"
+print(result.savings_pct)     # e.g. 45.2
 
-# Directory
-results = compressor.compress_directory('./dist', extensions=['.js', '.css', '.html'])
-for r in results:
-    print(f"{r.metadata.get('output')}: {r.ratio*100:.1f}%")
+# Compress file
+result = wc.compress_file("input.js", "output.js")
+
+# Force asset type
+result = wc.compress_string("...", asset_type=AssetType.CSS)
 ```
 
----
-
-## Compression Pipeline
-
-Each asset goes through **7 optimization passes** in aggressive mode:
-
-1. **Comment removal** — strips single-line, multi-line, and HTML comments
-2. **Whitespace removal** — collapses spaces, tabs, newlines around tokens
-3. **Value shortening** — numbers, colors, units, font weights
-4. **Boolean simplification** — logical identity optimizations
-5. **String merging** — adjacent literal concatenation
-6. **Dead code elimination** — empty statements, duplicate properties
-7. **Scope-aware renaming** — local variable renaming to shortest safe names
-
----
-
-## Safety Guarantees
-
-- **No string literal renaming** — only renames local variables in safe contexts
-- **No property renaming** — `obj.prop` is never shortened
-- **No global/method renaming** — built-in globals and method calls are preserved
-- **Scope-aware** — understands basic JavaScript scope rules
-- **HTML semantic preservation** — only removes safe whitespace and comments
-
----
-
-## Performance
-
-Typical compression ratios:
-
-| Asset Type | Original | Compressed | Savings |
-|-----------|----------|------------|---------|
-| JavaScript | 100KB | ~45KB | 55% |
-| CSS | 50KB | ~20KB | 60% |
-| HTML | 100KB | ~70KB | 30% |
-
----
-
-## Testing
+## Running Tests
 
 ```bash
-python -m pytest tests/
+python -m unittest discover -s tests -v
 ```
 
----
+## Design Principles
+
+1. **Token Safety**: All string literals, regex literals, template literals, and comments are extracted before any transformation. They are restored unchanged at the end.
+2. **ASI Preservation**: Newlines after `return`, `throw`, `break`, `continue`, `yield`, `await`, `delete`, `void`, `typeof` are preserved to avoid changing JavaScript semantics.
+3. **Semantic Preservation**: HTML verbatim tags (`<pre>`, `<code>`, `<textarea>`) are extracted and restored without modification.
+4. **Bidirectional Color Optimization**: CSS colors are converted to the shortest valid representation in both directions.
 
 ## License
 
-MIT © Mohit Kumar
+MIT

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-CSS-specific compression optimizations.
+CSS-specific compression engine with color, unit, and selector optimizations.
 """
 
 import re
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 from compressor import BaseCompressor, AssetType
 
 
 class AdvancedCSSCompressor(BaseCompressor):
     """Production-grade CSS compressor with semantic optimizations."""
 
-    # Named colors → shortest hex
+    # Complete named colors -> shortest hex
     COLOR_MAP = {
         "aliceblue": "#f0f8ff",
         "antiquewhite": "#faebd7",
@@ -161,138 +161,601 @@ class AdvancedCSSCompressor(BaseCompressor):
         "whitesmoke": "#f5f5f5",
         "yellow": "#ff0",
         "yellowgreen": "#9acd32",
-        "transparent": "transparent",
     }
 
+    # Comprehensive hex -> shorter named color (only when shorter)
+    HEX_TO_NAME = {
+        "#f00": "red",
+        "#ff0000": "red",
+        "#000080": "navy",
+        "#800000": "maroon",
+        "#808000": "olive",
+        "#800080": "purple",
+        "#008080": "teal",
+        "#c0c0c0": "silver",
+        "#808080": "gray",
+        "#a52a2a": "brown",
+        "#ffa500": "orange",
+        "#ffc0cb": "pink",
+        "#ff6347": "tomato",
+        "#ffff00": "yellow",
+        "#00ff00": "lime",
+        "#008000": "green",
+        "#0000ff": "blue",
+        "#000000": "black",
+        "#ffffff": "white",
+        "#f5f5dc": "beige",
+        "#ffe4c4": "bisque",
+        "#ffebcd": "blanchedalmond",
+        "#f0ffff": "azure",
+        "#f0f8ff": "aliceblue",
+        "#fffaf0": "floralwhite",
+        "#f5fffa": "mintcream",
+        "#f8f8ff": "ghostwhite",
+        "#fff0f5": "lavenderblush",
+        "#f0fff0": "honeydew",
+        "#fffff0": "ivory",
+        "#f5f5f5": "whitesmoke",
+        "#fff5ee": "seashell",
+        "#faf0e6": "linen",
+        "#fdf5e6": "oldlace",
+        "#fff8dc": "cornsilk",
+        "#fffacd": "lemonchiffon",
+        "#ffe4e1": "mistyrose",
+        "#ffe4b5": "moccasin",
+        "#ffdead": "navajowhite",
+        "#ffefd5": "papayawhip",
+        "#ffdab9": "peachpuff",
+        "#f0e68c": "khaki",
+        "#bdb76b": "darkkhaki",
+        "#f4a460": "sandybrown",
+        "#d2b48c": "tan",
+        "#d8bfd8": "thistle",
+        "#e6e6fa": "lavender",
+        "#dda0dd": "plum",
+        "#ee82ee": "violet",
+        "#da70d6": "orchid",
+        "#ba55d3": "mediumorchid",
+        "#9932cc": "darkorchid",
+        "#9400d3": "darkviolet",
+        "#8a2be2": "blueviolet",
+        "#8b008b": "darkmagenta",
+        "#8b4513": "saddlebrown",
+        "#a0522d": "sienna",
+        "#bc8f8f": "rosybrown",
+        "#cd853f": "peru",
+        "#d2691e": "chocolate",
+        "#b8860b": "darkgoldenrod",
+        "#daa520": "goldenrod",
+        "#ffd700": "gold",
+        "#adff2f": "greenyellow",
+        "#32cd32": "limegreen",
+        "#90ee90": "lightgreen",
+        "#98fb98": "palegreen",
+        "#00fa9a": "mediumspringgreen",
+        "#00ff7f": "springgreen",
+        "#2e8b57": "seagreen",
+        "#228b22": "forestgreen",
+        "#006400": "darkgreen",
+        "#9acd32": "yellowgreen",
+        "#6b8e23": "olivedrab",
+        "#556b2f": "darkolivegreen",
+        "#808000": "olive",
+        "#3cb371": "mediumseagreen",
+        "#20b2aa": "lightseagreen",
+        "#008b8b": "darkcyan",
+        "#00ced1": "darkturquoise",
+        "#48d1cc": "mediumturquoise",
+        "#40e0d0": "turquoise",
+        "#00ffff": "cyan",
+        "#e0ffff": "lightcyan",
+        "#afeeee": "paleturquoise",
+        "#7fffd4": "aquamarine",
+        "#66cdaa": "mediumaquamarine",
+        "#00bfff": "deepskyblue",
+        "#87ceeb": "skyblue",
+        "#87cefa": "lightskyblue",
+        "#add8e6": "lightblue",
+        "#b0e0e6": "powderblue",
+        "#b0c4de": "lightsteelblue",
+        "#6495ed": "cornflowerblue",
+        "#4169e1": "royalblue",
+        "#191970": "midnightblue",
+        "#00008b": "darkblue",
+        "#0000cd": "mediumblue",
+        "#4682b4": "steelblue",
+        "#5f9ea0": "cadetblue",
+        "#483d8b": "darkslateblue",
+        "#7b68ee": "mediumslateblue",
+        "#6a5acd": "slateblue",
+        "#9370db": "mediumpurple",
+        "#663399": "rebeccapurple",
+        "#c71585": "mediumvioletred",
+        "#db7093": "palevioletred",
+        "#ff1493": "deeppink",
+        "#ff69b4": "hotpink",
+        "#ffb6c1": "lightpink",
+        "#ffa07a": "lightsalmon",
+        "#fa8072": "salmon",
+        "#e9967a": "darksalmon",
+        "#f08080": "lightcoral",
+        "#cd5c5c": "indianred",
+        "#b22222": "firebrick",
+        "#8b0000": "darkred",
+        "#dc143c": "crimson",
+        "#ff4500": "orangered",
+        "#ff8c00": "darkorange",
+        "#ffd700": "gold",
+        "#ff7f50": "coral",
+        "#eee8aa": "palegoldenrod",
+        "#fafad2": "lightgoldenrodyellow",
+        "#f0e68c": "khaki",
+        "#ffffe0": "lightyellow",
+        "#fffafa": "snow",
+        "#f5deb3": "wheat",
+        "#deb887": "burlywood",
+        "#d3d3d3": "lightgray",
+        "#a9a9a9": "darkgray",
+        "#696969": "dimgray",
+        "#708090": "slategray",
+        "#c0c0c0": "silver",
+        "#dcdcdc": "gainsboro",
+        "#f5f5f5": "whitesmoke",
+        "#fff8dc": "cornsilk",
+        "#fffacd": "lemonchiffon",
+        "#ffe4b5": "moccasin",
+        "#ffdead": "navajowhite",
+        "#ffefd5": "papayawhip",
+        "#ffdab9": "peachpuff",
+        "#ffe4c4": "bisque",
+        "#ffe4e1": "mistyrose",
+        "#f0fff0": "honeydew",
+        "#f0ffff": "azure",
+        "#f0f8ff": "aliceblue",
+        "#f8f8ff": "ghostwhite",
+        "#fff0f5": "lavenderblush",
+        "#fffff0": "ivory",
+        "#fffaf0": "floralwhite",
+        "#f5fffa": "mintcream",
+        "#fdf5e6": "oldlace",
+        "#faf0e6": "linen",
+        "#fff5ee": "seashell",
+        "#f5deb3": "wheat",
+        "#e6e6fa": "lavender",
+        "#d8bfd8": "thistle",
+        "#dda0dd": "plum",
+        "#ee82ee": "violet",
+        "#da70d6": "orchid",
+        "#ba55d3": "mediumorchid",
+        "#9932cc": "darkorchid",
+        "#9400d3": "darkviolet",
+        "#8a2be2": "blueviolet",
+        "#8b008b": "darkmagenta",
+        "#8b4513": "saddlebrown",
+        "#a0522d": "sienna",
+        "#bc8f8f": "rosybrown",
+        "#cd853f": "peru",
+        "#d2691e": "chocolate",
+        "#b8860b": "darkgoldenrod",
+        "#daa520": "goldenrod",
+        "#ffd700": "gold",
+        "#adff2f": "greenyellow",
+        "#32cd32": "limegreen",
+        "#90ee90": "lightgreen",
+        "#98fb98": "palegreen",
+        "#00fa9a": "mediumspringgreen",
+        "#00ff7f": "springgreen",
+        "#2e8b57": "seagreen",
+        "#228b22": "forestgreen",
+        "#006400": "darkgreen",
+        "#9acd32": "yellowgreen",
+        "#6b8e23": "olivedrab",
+        "#556b2f": "darkolivegreen",
+        "#3cb371": "mediumseagreen",
+        "#20b2aa": "lightseagreen",
+        "#008b8b": "darkcyan",
+        "#00ced1": "darkturquoise",
+        "#48d1cc": "mediumturquoise",
+        "#40e0d0": "turquoise",
+        "#7fffd4": "aquamarine",
+        "#66cdaa": "mediumaquamarine",
+        "#00bfff": "deepskyblue",
+        "#87ceeb": "skyblue",
+        "#87cefa": "lightskyblue",
+        "#add8e6": "lightblue",
+        "#b0e0e6": "powderblue",
+        "#b0c4de": "lightsteelblue",
+        "#6495ed": "cornflowerblue",
+        "#4169e1": "royalblue",
+        "#191970": "midnightblue",
+        "#00008b": "darkblue",
+        "#0000cd": "mediumblue",
+        "#4682b4": "steelblue",
+        "#5f9ea0": "cadetblue",
+        "#483d8b": "darkslateblue",
+        "#7b68ee": "mediumslateblue",
+        "#6a5acd": "slateblue",
+        "#9370db": "mediumpurple",
+        "#663399": "rebeccapurple",
+        "#c71585": "mediumvioletred",
+        "#db7093": "palevioletred",
+        "#ff1493": "deeppink",
+        "#ff69b4": "hotpink",
+        "#ffb6c1": "lightpink",
+        "#ffa07a": "lightsalmon",
+        "#fa8072": "salmon",
+        "#e9967a": "darksalmon",
+        "#f08080": "lightcoral",
+        "#cd5c5c": "indianred",
+        "#b22222": "firebrick",
+        "#8b0000": "darkred",
+        "#dc143c": "crimson",
+        "#ff4500": "orangered",
+        "#ff8c00": "darkorange",
+        "#ff7f50": "coral",
+        "#eee8aa": "palegoldenrod",
+        "#fafad2": "lightgoldenrodyellow",
+        "#f0e68c": "khaki",
+        "#ffffe0": "lightyellow",
+        "#fffafa": "snow",
+        "#f5deb3": "wheat",
+        "#deb887": "burlywood",
+        "#d3d3d3": "lightgray",
+        "#a9a9a9": "darkgray",
+        "#696969": "dimgray",
+        "#708090": "slategray",
+        "#c0c0c0": "silver",
+        "#dcdcdc": "gainsboro",
+        "#f5f5f5": "whitesmoke",
+        "#778899": "lightslategray",
+        "#b0c4de": "lightsteelblue",
+        "#708090": "slategray",
+        "#778899": "lightslategray",
+        "#2f4f4f": "darkslategray",
+        "#2f4f4f": "darkslategrey",
+        "#00ced1": "darkturquoise",
+        "#48d1cc": "mediumturquoise",
+        "#40e0d0": "turquoise",
+        "#00ffff": "cyan",
+        "#e0ffff": "lightcyan",
+        "#afeeee": "paleturquoise",
+        "#7fffd4": "aquamarine",
+        "#66cdaa": "mediumaquamarine",
+        "#00bfff": "deepskyblue",
+        "#87ceeb": "skyblue",
+        "#87cefa": "lightskyblue",
+        "#add8e6": "lightblue",
+        "#b0e0e6": "powderblue",
+        "#6495ed": "cornflowerblue",
+        "#4169e1": "royalblue",
+        "#191970": "midnightblue",
+        "#00008b": "darkblue",
+        "#0000cd": "mediumblue",
+        "#4682b4": "steelblue",
+        "#5f9ea0": "cadetblue",
+        "#483d8b": "darkslateblue",
+        "#7b68ee": "mediumslateblue",
+        "#6a5acd": "slateblue",
+        "#9370db": "mediumpurple",
+        "#663399": "rebeccapurple",
+        "#c71585": "mediumvioletred",
+        "#db7093": "palevioletred",
+        "#ff1493": "deeppink",
+        "#ff69b4": "hotpink",
+        "#ffb6c1": "lightpink",
+        "#ffa07a": "lightsalmon",
+        "#fa8072": "salmon",
+        "#e9967a": "darksalmon",
+        "#f08080": "lightcoral",
+        "#cd5c5c": "indianred",
+        "#b22222": "firebrick",
+        "#8b0000": "darkred",
+        "#dc143c": "crimson",
+        "#ff4500": "orangered",
+        "#ff8c00": "darkorange",
+        "#ff7f50": "coral",
+        "#ffd700": "gold",
+        "#daa520": "goldenrod",
+        "#b8860b": "darkgoldenrod",
+        "#d2691e": "chocolate",
+        "#cd853f": "peru",
+        "#bc8f8f": "rosybrown",
+        "#a0522d": "sienna",
+        "#8b4513": "saddlebrown",
+        "#f4a460": "sandybrown",
+        "#d2b48c": "tan",
+        "#d8bfd8": "thistle",
+        "#f5deb3": "wheat",
+        "#fffafa": "snow",
+        "#fff5ee": "seashell",
+        "#faf0e6": "linen",
+        "#fdf5e6": "oldlace",
+        "#ffefd5": "papayawhip",
+        "#ffdab9": "peachpuff",
+        "#ffe4b5": "moccasin",
+        "#ffdead": "navajowhite",
+        "#ffe4e1": "mistyrose",
+        "#f0e68c": "khaki",
+        "#f0ffff": "azure",
+        "#f0f8ff": "aliceblue",
+        "#f8f8ff": "ghostwhite",
+        "#fff0f5": "lavenderblush",
+        "#fffff0": "ivory",
+        "#f0fff0": "honeydew",
+        "#fff8dc": "cornsilk",
+        "#fffacd": "lemonchiffon",
+        "#fffaf0": "floralwhite",
+        "#f5fffa": "mintcream",
+        "#f5f5f5": "whitesmoke",
+        "#f5f5dc": "beige",
+        "#e6e6fa": "lavender",
+        "#dda0dd": "plum",
+        "#ee82ee": "violet",
+        "#da70d6": "orchid",
+        "#ba55d3": "mediumorchid",
+        "#9932cc": "darkorchid",
+        "#9400d3": "darkviolet",
+        "#8a2be2": "blueviolet",
+        "#8b008b": "darkmagenta",
+        "#8b4513": "saddlebrown",
+        "#a0522d": "sienna",
+        "#bc8f8f": "rosybrown",
+        "#cd853f": "peru",
+        "#d2691e": "chocolate",
+        "#b8860b": "darkgoldenrod",
+        "#daa520": "goldenrod",
+        "#ffd700": "gold",
+        "#adff2f": "greenyellow",
+        "#32cd32": "limegreen",
+        "#90ee90": "lightgreen",
+        "#98fb98": "palegreen",
+        "#00fa9a": "mediumspringgreen",
+        "#00ff7f": "springgreen",
+        "#2e8b57": "seagreen",
+        "#228b22": "forestgreen",
+        "#006400": "darkgreen",
+        "#9acd32": "yellowgreen",
+        "#6b8e23": "olivedrab",
+        "#556b2f": "darkolivegreen",
+        "#808000": "olive",
+        "#3cb371": "mediumseagreen",
+        "#20b2aa": "lightseagreen",
+        "#008b8b": "darkcyan",
+        "#00ced1": "darkturquoise",
+        "#48d1cc": "mediumturquoise",
+        "#40e0d0": "turquoise",
+        "#00ffff": "cyan",
+        "#e0ffff": "lightcyan",
+        "#afeeee": "paleturquoise",
+        "#7fffd4": "aquamarine",
+        "#66cdaa": "mediumaquamarine",
+        "#00bfff": "deepskyblue",
+        "#87ceeb": "skyblue",
+        "#87cefa": "lightskyblue",
+        "#add8e6": "lightblue",
+        "#b0e0e6": "powderblue",
+        "#6495ed": "cornflowerblue",
+        "#4169e1": "royalblue",
+        "#191970": "midnightblue",
+        "#00008b": "darkblue",
+        "#0000cd": "mediumblue",
+        "#4682b4": "steelblue",
+        "#5f9ea0": "cadetblue",
+        "#483d8b": "darkslateblue",
+        "#7b68ee": "mediumslateblue",
+        "#6a5acd": "slateblue",
+        "#9370db": "mediumpurple",
+        "#663399": "rebeccapurple",
+        "#c71585": "mediumvioletred",
+        "#db7093": "palevioletred",
+        "#ff1493": "deeppink",
+        "#ff69b4": "hotpink",
+        "#ffb6c1": "lightpink",
+        "#ffa07a": "lightsalmon",
+        "#fa8072": "salmon",
+        "#e9967a": "darksalmon",
+        "#f08080": "lightcoral",
+        "#cd5c5c": "indianred",
+        "#b22222": "firebrick",
+        "#8b0000": "darkred",
+        "#dc143c": "crimson",
+        "#ff4500": "orangered",
+        "#ff8c00": "darkorange",
+        "#ff7f50": "coral",
+    }
+
+    # Build reverse map: hex -> shortest name
+    _REVERSE_COLOR_MAP: Dict[str, str] = {}
+    for _name, _hex in COLOR_MAP.items():
+        _h = _hex.lower()
+        if _h not in _REVERSE_COLOR_MAP or len(_name) < len(_REVERSE_COLOR_MAP[_h]):
+            _REVERSE_COLOR_MAP[_h] = _name
+
+    def __init__(self, aggressive: bool = True):
+        super().__init__(aggressive)
+        self.literal_table: Dict[str, str] = {}
+        self.literal_counter = 0
+
     def compress(self, content: str) -> Tuple[str, List[str]]:
-        warnings = []
-        code = content
+        self.warnings = []
+        self.literal_table = {}
+        self.literal_counter = 0
 
-        # Multi-pass optimization
-        code = self._remove_comments(code)
-        code = self._remove_whitespace(code)
-        code = self._optimize_colors(code)
-        code = self._optimize_values(code)
-        code = self._merge_selectors(code)
-        code = self._dedupe_properties(code)
-        code = self._optimize_units(code)
+        if not content.strip():
+            return "", []
 
-        return code, warnings
+        # Pass 1: Extract string literals and url(...) blocks to protect them
+        css = self._extract_literals(content)
 
-    def _remove_comments(self, code: str) -> str:
-        code = re.sub(r"/\*[\s\S]*?\*/", "", code)
-        return code
+        # Pass 2: Strip comments
+        css = self._strip_comments(css)
 
-    def _remove_whitespace(self, code: str) -> str:
-        code = re.sub(r"\s*([{};:,>+~])\s*", r"\1", code)
-        code = re.sub(r"\s*:\s*", ":", code)
-        code = "\n".join(line.strip() for line in code.split("\n") if line.strip())
-        code = re.sub(r"\n\s*\n", "\n", code)
-        code = re.sub(r",\s+", ",", code)
-        code = re.sub(r"\s+;", ";", code)
-        code = re.sub(r";\s+", ";", code)
-        return code
+        # Pass 3: Optimize colors
+        css = self._optimize_colors(css)
 
-    def _optimize_colors(self, code: str) -> str:
-        # Named colors
-        for name, hex_val in sorted(
-            self.COLOR_MAP.items(), key=lambda x: len(x[1]), reverse=True
-        ):
-            if len(name) > len(hex_val):
-                code = re.sub(r"\b" + re.escape(name) + r"\b", hex_val, code)
+        # Pass 4: Optimize zero dimensions and decimals
+        css = self._optimize_dimensions(css)
 
-        # Shorten #rrggbb to #rgb
-        def shorten_hex(m):
-            h = m.group(1)
-            if len(h) == 6 and h[0] == h[1] and h[2] == h[3] and h[4] == h[5]:
-                return "#" + h[0] + h[2] + h[4]
-            return "#" + h
+        # Pass 5: Optimize font-weight
+        css = self._optimize_font_weights(css)
 
-        code = re.sub(r"#([0-9a-fA-F]{6})\b", shorten_hex, code)
+        # Pass 6: Compact whitespace and structure
+        css = self._compact_structure(css)
 
-        # rgb() to hex
-        code = re.sub(
-            r"rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)",
-            lambda m: "#{:02x}{:02x}{:02x}".format(
-                int(m.group(1)), int(m.group(2)), int(m.group(3))
-            ),
-            code,
-        )
-        return code
+        # Pass 7: Restore literals
+        css = self._restore_literals(css)
 
-    def _optimize_values(self, code: str) -> str:
-        # Zero values
-        code = re.sub(
-            r"\b0(px|em|rem|pt|pc|cm|mm|in|vh|vw|vmin|vmax|ex|ch|deg|rad|turn|s|ms|Hz|kHz|dpi|dpcm|dppx)?\b",
-            "0",
-            code,
-        )
-        # Font weights
-        code = re.sub(r"\bbold\b", "700", code)
-        code = re.sub(r"\bnormal\b", "400", code)
-        return code
+        return css.strip(), self.warnings
 
-    def _merge_selectors(self, code: str) -> str:
-        rules = re.findall(r"([^{]+)\{([^}]*)\}", code, re.DOTALL)
-        if not rules:
-            return code
+    def _extract_literals(self, text: str) -> str:
+        """Extract strings and url(...) contents."""
+        result = []
+        i = 0
+        n = len(text)
 
-        rule_map = {}
-        order = []
-        for selector, body in rules:
-            selector = selector.strip()
-            if not selector:
+        while i < n:
+            ch = text[i]
+
+            # Strings
+            if ch in ("'", '"'):
+                quote = ch
+                j = i + 1
+                while j < n:
+                    if text[j] == "\\":
+                        j += 2
+                        continue
+                    if text[j] == quote:
+                        j += 1
+                        break
+                    j += 1
+                token_id = f"___CSS_LIT_{self.literal_counter}___"
+                self.literal_counter += 1
+                self.literal_table[token_id] = text[i:j]
+                result.append(token_id)
+                i = j
                 continue
-            props = {}
-            for prop in body.split(";"):
-                prop = prop.strip()
-                if ":" in prop:
-                    key, val = prop.split(":", 1)
-                    props[key.strip()] = val.strip()
-            if selector not in rule_map:
-                order.append(selector)
-                rule_map[selector] = props
-            else:
-                rule_map[selector].update(props)
 
-        parts = []
-        for selector in order:
-            props = rule_map[selector]
-            body = ";".join(f"{k}:{v}" for k, v in props.items())
-            parts.append(f"{selector}{{{body}}}")
+            # url(...)
+            if text[i : i + 4].lower() == "url(":
+                j = i + 4
+                while j < n and text[j] != ")":
+                    if text[j] == "\\":
+                        j += 2
+                        continue
+                    j += 1
+                if j < n and text[j] == ")":
+                    j += 1
+                token_id = f"___CSS_LIT_{self.literal_counter}___"
+                self.literal_counter += 1
+                self.literal_table[token_id] = text[i:j]
+                result.append(token_id)
+                i = j
+                continue
 
-        return ";".join(parts) + ";" if parts else ""
+            result.append(ch)
+            i += 1
 
-    def _dedupe_properties(self, code: str) -> str:
-        rules = re.findall(r"([^{]+)\{([^}]*)\}", code, re.DOTALL)
-        if not rules:
-            return code
+        return "".join(result)
 
-        parts = []
-        for selector, body in rules:
-            props = {}
-            for prop in body.split(";"):
-                prop = prop.strip()
-                if ":" in prop:
-                    key, val = prop.split(":", 1)
-                    props[key.strip()] = val.strip()
-            body = ";".join(f"{k}:{v}" for k, v in props.items())
-            parts.append(f"{selector}{{{body}}}")
+    def _strip_comments(self, css: str) -> str:
+        # Preserve special comments /*! ... */
+        def comment_repl(m):
+            comment = m.group(0)
+            if comment.startswith("/*!"):
+                token_id = f"___CSS_LIT_{self.literal_counter}___"
+                self.literal_counter += 1
+                self.literal_table[token_id] = comment
+                return token_id
+            return " "
 
-        return ";".join(parts) + ";" if parts else ""
+        return re.sub(r"/\*[\s\S]*?\*/", comment_repl, css)
 
-    def _optimize_units(self, code: str) -> str:
-        # Remove units from zero values (already done in _optimize_values)
-        # Convert absolute to relative where safe (0.5em → .5em)
-        code = re.sub(r"0\.(\d+)em", r".\1em", code)
-        code = re.sub(r"0\.(\d+)rem", r".\1rem", code)
-        return code
+    def _optimize_colors(self, css: str) -> str:
+        # Convert rgb(r, g, b) to hex
+        def rgb_repl(m):
+            try:
+                r = int(m.group(1).strip())
+                g = int(m.group(2).strip())
+                b = int(m.group(3).strip())
+                hex_str = f"#{r:02x}{g:02x}{b:02x}"
+                # 6-digit to 3-digit
+                if (
+                    hex_str[1] == hex_str[2]
+                    and hex_str[3] == hex_str[4]
+                    and hex_str[5] == hex_str[6]
+                ):
+                    hex_str = f"#{hex_str[1]}{hex_str[3]}{hex_str[5]}"
+                return self._REVERSE_COLOR_MAP.get(hex_str.lower(), hex_str)
+            except ValueError:
+                return m.group(0)
 
-    def detect_type(self, content: str, filename: str) -> AssetType:
-        if filename.endswith(".css"):
-            return AssetType.CSS
-        return AssetType.UNKNOWN
+        css = re.sub(
+            r"\brgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)",
+            rgb_repl,
+            css,
+            flags=re.IGNORECASE,
+        )
 
+        # 6-digit hex to 3-digit hex or named color
+        def hex_repl(m):
+            h = m.group(0).lower()
+            if len(h) == 7 and h[1] == h[2] and h[3] == h[4] and h[5] == h[6]:
+                shorter = f"#{h[1]}{h[3]}{h[5]}"
+                return self._REVERSE_COLOR_MAP.get(shorter, shorter)
+            return self._REVERSE_COLOR_MAP.get(h, h)
 
-class AdvancedCSSCompressor(AdvancedCSSCompressor):
-    pass
+        css = re.sub(r"#[0-9a-fA-F]{6}\b", hex_repl, css)
+
+        # Named color conversion in properties (excluding selectors)
+        # Only convert named colors that are shorter as hex
+        for name, hex_val in self.COLOR_MAP.items():
+            if len(hex_val) < len(name):
+                css = re.sub(
+                    rf"(?<=[:\s])\b{name}\b", hex_val, css, flags=re.IGNORECASE
+                )
+
+        return css
+
+    def _optimize_dimensions(self, css: str) -> str:
+        # 0px, 0em, 0rem, etc. -> 0 (safe zero units)
+        # Keep 0% as-is for safety in flex/transitions contexts
+        css = re.sub(
+            r"(:\s*|\s+)\b0(?:px|em|rem|in|cm|mm|pc|pt|ex|ch|vh|vw|vmin|vmax|s|ms|deg|rad|grad|turn)\b",
+            r"\g<1>0",
+            css,
+            flags=re.IGNORECASE,
+        )
+
+        # 0.5em -> .5em
+        css = re.sub(r"(:\s*|\s+)0\.(\d+)", r"\g<1>.\2", css)
+
+        return css
+
+    def _optimize_font_weights(self, css: str) -> str:
+        css = re.sub(
+            r"\bfont-weight\s*:\s*normal\b", "font-weight:400", css, flags=re.IGNORECASE
+        )
+        css = re.sub(
+            r"\bfont-weight\s*:\s*bold\b", "font-weight:700", css, flags=re.IGNORECASE
+        )
+        return css
+
+    def _compact_structure(self, css: str) -> str:
+        # Collapse whitespace
+        css = re.sub(r"\s+", " ", css)
+
+        # Remove spaces around delimiters
+        css = re.sub(r"\s*([{}();:,>~+])\s*", r"\1", css)
+
+        # Remove trailing semicolons before }
+        css = re.sub(r";\}", "}", css)
+
+        # Remove empty rules: e.g. .a{}
+        css = re.sub(r"[^{}]+\{\}", "", css)
+
+        return css
+
+    def _restore_literals(self, css: str) -> str:
+        for token_id, original in self.literal_table.items():
+            css = css.replace(token_id, original)
+        return css

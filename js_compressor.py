@@ -1,34 +1,40 @@
 #!/usr/bin/env python3
 """
-Advanced JavaScript compressor with AST-inspired optimizations.
+Advanced JavaScript compressor with token-safe extraction and optimizations.
 """
 
 import re
-from typing import Tuple, List
+from typing import Tuple, List, Dict, Optional
 from compressor import BaseCompressor, AssetType
 
 
 class AdvancedJSCompressor(BaseCompressor):
-    """Production-grade JS minifier with scope-aware optimizations."""
+    """Production-grade JS minifier with token protection and AST-inspired passes."""
 
-    RESERVED = {
+    RESERVED_KEYWORDS = {
         "break",
         "case",
         "catch",
+        "class",
+        "const",
         "continue",
         "debugger",
         "default",
         "delete",
         "do",
         "else",
+        "export",
+        "extends",
         "finally",
         "for",
         "function",
         "if",
+        "import",
         "in",
         "instanceof",
         "new",
         "return",
+        "super",
         "switch",
         "this",
         "throw",
@@ -38,339 +44,367 @@ class AdvancedJSCompressor(BaseCompressor):
         "void",
         "while",
         "with",
-        "const",
-        "let",
-        "class",
-        "extends",
-        "export",
-        "import",
-        "super",
         "yield",
-        "async",
-        "await",
+        "let",
         "static",
-        "get",
-        "set",
-        "of",
-        "as",
-        "from",
+        "enum",
+        "await",
+        "async",
+        "null",
         "true",
         "false",
-        "null",
         "undefined",
         "NaN",
         "Infinity",
-        "arguments",
-        "eval",
-        "isNaN",
-        "isFinite",
-        "parseInt",
-        "parseFloat",
-        "Object",
-        "Array",
-        "String",
-        "Number",
-        "Boolean",
-        "Function",
-        "Symbol",
-        "Date",
-        "RegExp",
-        "Error",
-        "Map",
-        "Set",
-        "Promise",
-        "Proxy",
-        "Reflect",
-        "JSON",
-        "Math",
-        "console",
-        "window",
-        "document",
-        "globalThis",
-        "require",
-        "module",
-        "exports",
-        "__dirname",
-        "__filename",
-        "process",
-        "Buffer",
-        "setTimeout",
-        "setInterval",
-        "clearTimeout",
-        "clearInterval",
-        "fetch",
-        "XMLHttpRequest",
-        "FormData",
-        "URL",
-        "URLSearchParams",
-        "Blob",
-        "File",
-        "FileReader",
-        "localStorage",
-        "sessionStorage",
-        "location",
-        "history",
-        "navigator",
-        "screen",
-        "alert",
-        "confirm",
-        "prompt",
-        "encodeURIComponent",
-        "decodeURIComponent",
-        "encodeURI",
-        "decodeURI",
-        "Error",
-        "TypeError",
-        "RangeError",
-        "SyntaxError",
-        "ReferenceError",
-        "URIError",
-        "EvalError",
-        "AggregateError",
-        "WeakMap",
-        "WeakSet",
-        "DataView",
-        "Int8Array",
-        "Uint8Array",
-        "Int16Array",
-        "Uint16Array",
-        "Int32Array",
-        "Uint32Array",
-        "Float32Array",
-        "Float64Array",
-        "BigInt64Array",
-        "BigUint64Array",
-        "Uint8ClampedArray",
-        "BigInt",
-        "Reflect",
-        "Intl",
-        "WebAssembly",
     }
 
+    # Tokens after which a / can start a regex literal
+    REGEX_PRECEDING = {
+        "(",
+        ",",
+        "=",
+        ":",
+        "[",
+        "!",
+        "&",
+        "|",
+        "?",
+        "{",
+        ";",
+        "+",
+        "-",
+        "*",
+        "/",
+        "%",
+        "return",
+        "case",
+        "throw",
+        "typeof",
+        "delete",
+        "void",
+        "yield",
+        "await",
+        "in",
+        "instanceof",
+    }
+
+    # Tokens after which a newline should NOT be removed (ASI-sensitive)
+    ASI_SENSITIVE = {
+        "return",
+        "throw",
+        "break",
+        "continue",
+        "yield",
+        "await",
+        "delete",
+        "void",
+        "typeof",
+    }
+
+    def __init__(self, aggressive: bool = True):
+        super().__init__(aggressive)
+        self.literal_table: Dict[str, str] = {}
+        self.literal_counter = 0
+
     def compress(self, content: str) -> Tuple[str, List[str]]:
-        warnings = []
-        code = content
+        self.warnings = []
+        self.literal_table = {}
+        self.literal_counter = 0
 
-        # Multi-pass optimization pipeline
-        code = self._remove_comments(code)
-        code = self._remove_whitespace(code)
-        code = self._shorten_numbers(code)
-        code = self._simplify_booleans(code)
-        code = self._merge_strings(code)
-        code = self._remove_empty(code)
-        code = self._constant_fold(code)
-        code = self._optimize_operators(code)
+        if not content.strip():
+            return "", []
 
-        if self.aggressive:
-            code, rename_warnings = self._scope_rename(code)
-            warnings.extend(rename_warnings)
+        # Pass 1: Tokenize & extract string literals, regex literals, and comments
+        code = self._extract_tokens(content)
 
-        return code, warnings
+        # Pass 2: Number optimizations (safe, out-of-string)
+        code = self._optimize_numbers(code)
 
-    def _remove_comments(self, code: str) -> str:
-        # Remove single-line comments (not inside strings)
-        code = re.sub(r'(?<![\\\'"\w])//[^\n]*', "", code)
-        # Remove multi-line comments
-        code = re.sub(r"/\*[\s\S]*?\*/", "", code)
-        return code
+        # Pass 3: Safe dead code & semicolon optimizations
+        code = self._clean_syntax(code)
 
-    def _remove_whitespace(self, code: str) -> str:
-        # Collapse whitespace
-        code = re.sub(r"[ \t]+", " ", code)
-        # Remove spaces around operators
-        code = re.sub(r"\s*([{}();:,<>!=+\-*/%&|^~?])\s*", r"\1", code)
-        # Remove spaces after commas
-        code = re.sub(r",\s+", ",", code)
-        # Remove trailing whitespace on lines
-        code = "\n".join(line.rstrip() for line in code.split("\n"))
-        # Collapse multiple newlines
-        code = re.sub(r"\n\s*\n", "\n", code)
-        # Remove newlines around braces
-        code = re.sub(r"([{};])\n+", r"\1", code)
-        code = re.sub(r"\n+([{};])", r"\1", code)
-        # Remove space before colon
-        code = re.sub(r"\s+:", ":", code)
-        # Remove space after opening paren/bracket
-        code = re.sub(r"([({\[])\s+", r"\1", code)
-        # Remove space before closing paren/bracket/brace
-        code = re.sub(r"\s+\)", ")", code)
-        code = re.sub(r"\s+\}", "}", code)
-        code = re.sub(r"\s+\]", "]", code)
-        return code
+        # Pass 4: Whitespace and operator compaction (ASI-safe)
+        code = self._compact_whitespace(code)
 
-    def _shorten_numbers(self, code: str) -> str:
-        def replace_number(m):
+        # Pass 5: Restore string and regex literals
+        code = self._restore_tokens(code)
+
+        return code, self.warnings
+
+    def _extract_tokens(self, text: str) -> str:
+        """
+        Token-aware lexer pass that extracts comments, strings, and regex literals
+        so that subsequent transformations cannot corrupt them.
+        """
+        result = []
+        i = 0
+        n = len(text)
+        last_non_ws_token = ""
+
+        while i < n:
+            ch = text[i]
+
+            # 1. Single-line comment //
+            if ch == "/" and i + 1 < n and text[i + 1] == "/":
+                j = i + 2
+                while j < n and text[j] not in ("\r", "\n"):
+                    j += 1
+                # Replace comment with space to preserve separation
+                result.append(" ")
+                i = j
+                continue
+
+            # 2. Multi-line comment /* ... */
+            if ch == "/" and i + 1 < n and text[i + 1] == "*":
+                j = i + 2
+                # Check for preserved comments (e.g. /*! ... */)
+                is_preserved = j < n and text[j] in ("!", "@")
+                while j + 1 < n and not (text[j] == "*" and text[j + 1] == "/"):
+                    j += 1
+                j = min(n, j + 2)
+                if is_preserved:
+                    token_id = f"___LITERAL_{self.literal_counter}___"
+                    self.literal_counter += 1
+                    self.literal_table[token_id] = text[i:j]
+                    result.append(token_id)
+                else:
+                    result.append(" ")
+                i = j
+                continue
+
+            # 3. String literals '...' and "..."
+            if ch in ("'", '"'):
+                quote = ch
+                j = i + 1
+                while j < n:
+                    if text[j] == "\\":
+                        j += 2
+                        continue
+                    if text[j] == quote:
+                        j += 1
+                        break
+                    if text[j] in ("\r", "\n"):
+                        break
+                    j += 1
+                token_str = text[i:j]
+                token_id = f"___LITERAL_{self.literal_counter}___"
+                self.literal_counter += 1
+                self.literal_table[token_id] = token_str
+                result.append(token_id)
+                last_non_ws_token = "literal"
+                i = j
+                continue
+
+            # 4. Template literals `...`
+            if ch == "`":
+                j = i + 1
+                while j < n:
+                    if text[j] == "\\":
+                        j += 2
+                        continue
+                    if text[j] == "`":
+                        j += 1
+                        break
+                    j += 1
+                token_str = text[i:j]
+                token_id = f"___LITERAL_{self.literal_counter}___"
+                self.literal_counter += 1
+                self.literal_table[token_id] = token_str
+                result.append(token_id)
+                last_non_ws_token = "literal"
+                i = j
+                continue
+
+            # 5. Regex literal /.../
+            if ch == "/" and last_non_ws_token in self.REGEX_PRECEDING:
+                j = i + 1
+                in_char_class = False
+                is_regex = True
+                while j < n:
+                    if text[j] == "\\":
+                        j += 2
+                        continue
+                    if text[j] == "[":
+                        in_char_class = True
+                    elif text[j] == "]" and in_char_class:
+                        in_char_class = False
+                    elif text[j] == "/" and not in_char_class:
+                        j += 1
+                        # flags
+                        while j < n and text[j].isalpha():
+                            j += 1
+                        break
+                    elif text[j] in ("\r", "\n"):
+                        is_regex = False
+                        break
+                    j += 1
+
+                if is_regex:
+                    token_str = text[i:j]
+                    token_id = f"___LITERAL_{self.literal_counter}___"
+                    self.literal_counter += 1
+                    self.literal_table[token_id] = token_str
+                    result.append(token_id)
+                    last_non_ws_token = "literal"
+                    i = j
+                    continue
+
+            # Track last non-whitespace token
+            if not ch.isspace():
+                if ch.isalnum() or ch in ("_", "$"):
+                    # Accumulate identifier
+                    j = i
+                    while j < n and (text[j].isalnum() or text[j] in ("_", "$")):
+                        j += 1
+                    word = text[i:j]
+                    result.append(word)
+                    last_non_ws_token = word
+                    i = j
+                    continue
+                else:
+                    last_non_ws_token = ch
+
+            result.append(ch)
+            i += 1
+
+        return "".join(result)
+
+    def _optimize_numbers(self, code: str) -> str:
+        """Safely shorten numbers outside of strings."""
+
+        def repl(m):
             num = m.group(0)
             try:
                 val = float(num)
-                if val == int(val) and "." in num:
+                # 1.0 -> 1
+                if "." in num and val == int(val):
                     return str(int(val))
-                if val > 0 and val < 1 and num.startswith("0") and "." in num:
+                # 0.5 -> .5
+                if 0 < val < 1 and num.startswith("0."):
                     return num[1:]
-                sci = f"{val:g}"
-                if "e" in sci and len(sci) < len(num):
-                    return sci
-            except ValueError:
+                # 1000 -> 1e3
+                if val >= 100 and val == int(val) and num.endswith("00"):
+                    sci = f"{int(val):.0e}"
+                    sci = sci.replace("+", "").replace("-", "-")
+                    if "e" in sci:
+                        parts = sci.split("e")
+                        parts[1] = parts[1].lstrip("0") or "0"
+                        sci = "e".join(parts)
+                    if len(sci) < len(num):
+                        return sci
+            except (ValueError, OverflowError):
                 pass
             return num
 
-        code = re.sub(r"\b\d+\.?\d*(?:e[+-]?\d+)?\b", replace_number, code)
-        return code
-
-    def _simplify_booleans(self, code: str) -> str:
-        code = re.sub(r"!!\s*([a-zA-Z_$][\w$]*)", r"\1", code)
-        code = re.sub(r"([a-zA-Z_$][\w$]*)\s*===\s*true", r"\1", code)
-        code = re.sub(r"([a-zA-Z_$][\w$]*)\s*!==\s*false", r"\1", code)
-        code = re.sub(r"true\s*===\s*([a-zA-Z_$][\w$]*)", r"\1", code)
-        code = re.sub(r"false\s*!==\s*([a-zA-Z_$][\w$]*)", r"\1", code)
-        # De Morgan's laws
-        code = re.sub(
-            r"!\s*([a-zA-Z_$][\w$]*)\s*&&\s*([a-zA-Z_$][\w$]*)", r"!\1||\2", code
-        )
-        code = re.sub(
-            r"!\s*([a-zA-Z_$][\w$]*)\s*\|\|\s*([a-zA-Z_$][\w$]*)", r"!\1&&\2", code
-        )
-        return code
-
-    def _merge_strings(self, code: str) -> str:
-        code = re.sub(
-            r"""(['"])([^'"]*)\1\s*(['"])([^'"]*)\3""",
-            lambda m: m.group(1) + m.group(2) + m.group(4) + m.group(1),
+        # Only target standalone numbers not part of identifiers or properties
+        return re.sub(
+            r"(?<![a-zA-Z0-9_$.])\b\d+\.?\d*(?:e[+-]?\d+)?\b(?!\s*\.\s*[a-zA-Z_$])",
+            repl,
             code,
         )
+
+    def _clean_syntax(self, code: str) -> str:
+        """Remove redundant semicolons and empty blocks."""
+        # Remove consecutive semicolons
+        code = re.sub(r";\s*;", ";", code)
+        # Remove semicolon before closing brace
+        code = re.sub(r";\s*}", "}", code)
         return code
 
-    def _remove_empty(self, code: str) -> str:
-        code = re.sub(r";;+", ";", code)
-        code = re.sub(r"\{\s*\}", "{}", code)
-        return code
+    def _compact_whitespace(self, code: str) -> str:
+        """Compact whitespace while respecting word boundaries and ASI."""
+        # Collapse multiple horizontal whitespace to single space
+        code = re.sub(r"[ \t]+", " ", code)
 
-    def _constant_fold(self, code: str) -> str:
-        def eval_const(m):
-            expr = m.group(0)
-            try:
-                if re.match(r"^\d+[\+\-\*/]\d+$", expr):
-                    result = eval(expr)
-                    return str(result)
-            except:
-                pass
-            return expr
+        # Remove spaces around non-alphanumeric punctuation where safe
+        code = re.sub(r"\s*([{}();:,~?])\s*", r"\1", code)
+        code = re.sub(
+            r"\s*(=|\+=|-=|\*=|/=|%=|&=|\|=|\^=|&&|\|\||===|==|!==|!=|<=|>=|<|>)\s*",
+            r"\1",
+            code,
+        )
 
-        code = re.sub(r"\b(\d+)\s*([+\-*/])\s*(\d+)\b", eval_const, code)
-        return code
-
-    def _optimize_operators(self, code: str) -> str:
-        # x = x + 1 → x++ or x += 1
-        code = re.sub(r"(\w+)\s*=\s*\1\s*\+\s*(\d+)\s*;", r"\1+=\2;", code)
-        code = re.sub(r"(\w+)\s*=\s*\1\s*-\s*(\d+)\s*;", r"\1-=\2;", code)
-        # x = x * 2 → x *= 2
-        code = re.sub(r"(\w+)\s*=\s*\1\s*\*\s*([^=])", r"\1*=\2", code)
-        return code
-
-    def _scope_rename(self, code: str) -> Tuple[str, List[str]]:
-        warnings = []
-        if not self.aggressive:
-            return code, warnings
-
-        # Tokenize
-        tokens = re.findall(r"([a-zA-Z_$][\w$]*)|([^a-zA-Z_$]+)", code)
-
-        # Identify safe-to-rename identifiers
-        safe_to_rename = set()
-        for i, (ident, _) in enumerate(tokens):
-            if not ident or ident in self.RESERVED:
-                continue
-            # Skip property access
-            if i > 0 and tokens[i - 1][1] and tokens[i - 1][1].endswith("."):
-                continue
-            # Skip after new/typeof/delete/void
-            if (
-                i > 0
-                and tokens[i - 1][1]
-                and tokens[i - 1][1].strip()
-                in (
-                    "new",
-                    "typeof",
-                    "delete",
-                    "void",
-                    "return",
-                    "throw",
-                    "case",
-                    "in",
-                    "instanceof",
-                )
-            ):
-                continue
-            safe_to_rename.add(ident)
-
-        if not safe_to_rename:
-            return code, warnings
-
-        # Generate short names
-        short_names = {}
-        used = set(safe_to_rename)
-        for c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ$_":
-            if c not in self.RESERVED and c not in used:
-                short_names[next(iter(safe_to_rename))] = c
-                used.add(c)
-                safe_to_rename.remove(next(iter(safe_to_rename)))
-                if not safe_to_rename:
-                    break
-
-        # Two-char names
-        if safe_to_rename:
-            for c1 in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ$_":
-                for (
-                    c2
-                ) in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$_":
-                    name = c1 + c2
-                    if name not in self.RESERVED and name not in used:
-                        short_names[next(iter(safe_to_rename))] = name
-                        used.add(name)
-                        safe_to_rename.remove(next(iter(safe_to_rename)))
-                        if not safe_to_rename:
+        # Safe removal around + and - without colliding ++ or --
+        def collapse_plus_minus(text: str) -> str:
+            result = []
+            i = 0
+            n = len(text)
+            while i < n:
+                if text[i] in ("+", "-"):
+                    ops = []
+                    j = i
+                    had_space = False
+                    while j < n:
+                        if text[j] in ("+", "-"):
+                            ops.append(text[j])
+                            j += 1
+                        elif text[j] in (" ", "\t"):
+                            had_space = True
+                            j += 1
+                        else:
                             break
-                if not safe_to_rename:
-                    break
 
-        # Rename
-        result = []
-        for i, (ident, non_ident) in enumerate(tokens):
-            if ident and ident in short_names:
-                if i > 0 and tokens[i - 1][1] and tokens[i - 1][1].endswith("."):
-                    result.append(ident)
-                    continue
-                if (
-                    i > 0
-                    and tokens[i - 1][1]
-                    and tokens[i - 1][1].strip()
-                    in (
-                        "new",
-                        "typeof",
-                        "delete",
-                        "void",
-                        "return",
-                        "throw",
-                        "case",
-                        "in",
-                        "instanceof",
-                    )
-                ):
-                    result.append(ident)
-                    continue
-                result.append(short_names[ident])
+                    while result and result[-1] in (" ", "\t"):
+                        result.pop()
+
+                    if had_space:
+                        result.append(ops[0])
+                        for op in ops[1:]:
+                            result.append(" ")
+                            result.append(op)
+                    else:
+                        result.extend(ops)
+
+                    i = j
+                else:
+                    result.append(text[i])
+                    i += 1
+
+            return "".join(result)
+
+        code = collapse_plus_minus(code)
+
+        # Collapse multiple newlines into single newline
+        code = re.sub(r"\n+", "\n", code)
+
+        # Remove newlines where punctuation guarantees no ASI is triggered
+        # BUT preserve newlines after ASI-sensitive keywords
+        lines = code.split("\n")
+        safe_lines = []
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            # Check if this line ends with an ASI-sensitive keyword
+            is_asi_sensitive = any(
+                stripped == kw
+                or stripped.startswith(kw + " ")
+                or stripped.startswith(kw + "(")
+                for kw in self.ASI_SENSITIVE
+            )
+            if is_asi_sensitive and idx + 1 < len(lines):
+                # Keep the newline - next line might be an expression
+                safe_lines.append(line)
             else:
-                result.append(ident if ident else non_ident)
+                # Remove trailing newline if next line starts with punctuation
+                if idx + 1 < len(lines):
+                    next_stripped = lines[idx + 1].strip()
+                    if (
+                        next_stripped
+                        and next_stripped[0] in "{}();:,>~+=[\\]*/%&|^~?<>!-"
+                    ):
+                        safe_lines.append(stripped)
+                    else:
+                        safe_lines.append(line)
+                else:
+                    safe_lines.append(line)
 
-        compressed = "".join(result)
-        warnings.append(f"Renamed {len(short_names)} variables to short names")
-        return compressed, warnings
+        code = "\n".join(safe_lines)
 
-    def detect_type(self, content: str, filename: str) -> AssetType:
-        if filename.endswith((".js", ".mjs", ".jsx", ".ts", ".tsx")):
-            return AssetType.JS
-        if re.search(
-            r"^\s*(import|export|const|let|var|function|class)\s", content, re.MULTILINE
-        ):
-            return AssetType.JS
-        return AssetType.UNKNOWN
+        # Remove leading/trailing line whitespace
+        lines = [line.strip() for line in code.split("\n") if line.strip()]
+        return "\n".join(lines).strip()
+
+    def _restore_tokens(self, code: str) -> str:
+        """Reinsert all original protected string and regex literals."""
+        for token_id, original in self.literal_table.items():
+            code = code.replace(token_id, original)
+        return code

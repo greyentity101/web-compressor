@@ -1,111 +1,189 @@
 #!/usr/bin/env python3
 """
-Advanced HTML compressor with semantic preservation.
+Advanced HTML compressor with semantic preservation and inline asset compression.
 """
 
 import re
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 from compressor import BaseCompressor, AssetType
 
 
 class AdvancedHTMLCompressor(BaseCompressor):
-    """Semantic-aware HTML minifier."""
+    """Semantic-aware HTML minifier with inline script and style processing."""
+
+    BOOLEAN_ATTRIBUTES = {
+        "allowfullscreen",
+        "allowpaymentrequest",
+        "async",
+        "autofocus",
+        "autoplay",
+        "checked",
+        "controls",
+        "default",
+        "defer",
+        "disabled",
+        "formnovalidate",
+        "hidden",
+        "ismap",
+        "itemscope",
+        "loop",
+        "multiple",
+        "muted",
+        "nomodule",
+        "novalidate",
+        "open",
+        "playsinline",
+        "readonly",
+        "required",
+        "reversed",
+        "selected",
+    }
+
+    def __init__(self, aggressive: bool = True):
+        super().__init__(aggressive)
+        self.literal_table: Dict[str, str] = {}
+        self.literal_counter = 0
 
     def compress(self, content: str) -> Tuple[str, List[str]]:
-        warnings = []
-        code = content
+        self.warnings = []
+        self.literal_table = {}
+        self.literal_counter = 0
 
-        # Pass 1: Remove comments
-        code = self._remove_comments(code)
-        # Pass 2: Minify inline assets
-        code = self._minify_inline(code, warnings)
-        # Pass 3: Optimize attributes
-        code = self._optimize_attributes(code)
-        # Pass 4: Remove whitespace
-        code = self._remove_whitespace(code)
-        # Pass 5: Optimize doctype
-        code = self._shorten_doctype(code)
+        if not content.strip():
+            return "", []
 
-        return code, warnings
+        html = content
 
-    def _remove_comments(self, code: str) -> str:
-        code = re.sub(r"<!--(?!\[if).*?-->", "", code, flags=re.DOTALL)
-        return code
+        # Pass 1: Protect sensitive tags (<pre>, <code>, <textarea>)
+        html = self._protect_verbatim_tags(html)
 
-    def _minify_inline(self, code: str, warnings: List[str]) -> str:
+        # Pass 2: Minify inline <style> and <script> blocks
+        html = self._minify_inline_assets(html)
+
+        # Pass 3: Remove HTML comments (preserving conditional comments)
+        html = self._strip_comments(html)
+
+        # Pass 4: Optimize attributes
+        html = self._optimize_attributes(html)
+
+        # Pass 5: Compact whitespace
+        html = self._compact_whitespace(html)
+
+        # Pass 6: Shorten doctype
+        html = self._shorten_doctype(html)
+
+        # Pass 7: Restore protected verbatim blocks
+        html = self._restore_verbatim_tags(html)
+
+        return html.strip(), self.warnings
+
+    def _protect_verbatim_tags(self, html: str) -> str:
+        """Protect <pre>, <code>, and <textarea> tags from whitespace modification."""
+
+        def protect(m):
+            token_id = f"___HTML_VERBATIM_{self.literal_counter}___"
+            self.literal_counter += 1
+            self.literal_table[token_id] = m.group(0)
+            return token_id
+
+        pattern = r"<(pre|code|textarea)\b[^>]*>[\s\S]*?</\1>"
+        return re.sub(pattern, protect, html, flags=re.IGNORECASE)
+
+    def _minify_inline_assets(self, html: str) -> str:
+        """Compress inline <style> and <script> contents."""
         from css_compressor import AdvancedCSSCompressor
         from js_compressor import AdvancedJSCompressor
 
         css_comp = AdvancedCSSCompressor(aggressive=self.aggressive)
         js_comp = AdvancedJSCompressor(aggressive=self.aggressive)
 
-        def minify_style(m):
-            css = m.group(1)
-            compressed, _ = css_comp.compress(css)
-            return f"<style>{compressed}</style>"
+        def style_repl(m):
+            open_tag = m.group(1)
+            content = m.group(2)
+            close_tag = m.group(3)
+            if content.strip():
+                minified, w = css_comp.compress(content)
+                self.warnings.extend([f"CSS: {msg}" for msg in w])
+                return f"{open_tag}{minified}{close_tag}"
+            return f"{open_tag}{close_tag}"
 
-        code = re.sub(
-            r"<style[^>]*>(.*?)</style>",
-            minify_style,
-            code,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
+        def script_repl(m):
+            open_tag = m.group(1)
+            content = m.group(2)
+            close_tag = m.group(3)
 
-        def minify_script(m):
-            js = m.group(1)
-            compressed, _ = js_comp.compress(js)
-            return f"<script>{compressed}</script>"
+            # Check if script type is non-javascript (e.g. type="application/json")
+            type_match = re.search(r'type=["\']([^"\']+)["\']', open_tag, re.IGNORECASE)
+            if type_match:
+                stype = type_match.group(1).lower()
+                if (
+                    "javascript" not in stype
+                    and "ecmascript" not in stype
+                    and stype != "module"
+                ):
+                    return m.group(0)
 
-        code = re.sub(
-            r"<script[^>]*>(.*?)</script>",
-            minify_script,
-            code,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
+            if content.strip():
+                minified, w = js_comp.compress(content)
+                self.warnings.extend([f"JS: {msg}" for msg in w])
+                return f"{open_tag}{minified}{close_tag}"
+            return f"{open_tag}{close_tag}"
 
-        return code
-
-    def _optimize_attributes(self, code: str) -> str:
-        # Remove optional quotes
-        code = re.sub(r'(\s)(\w+)=(["\'])([a-zA-Z0-9_-]+)\3', r"\1\2=\4", code)
-        # Shorten boolean attributes
-        code = re.sub(
-            r'\s(disabled|checked|readonly|required|autofocus|autoplay|controls|loop|muted|selected|multiple|novalidate|open|itemscope)\s*=\s*(["\'])\1\2',
-            lambda m: " " + m.group(1),
-            code,
-        )
-        # Remove type="text/javascript"
-        code = re.sub(
-            r'\stype=["\']text/javascript["\']', "", code, flags=re.IGNORECASE
-        )
-        # Remove type="text/css"
-        code = re.sub(r'\stype=["\']text/css["\']', "", code, flags=re.IGNORECASE)
-        # Remove charset if UTF-8
-        code = re.sub(
-            r"<meta[^>]+charset[^>]+>",
-            lambda m: "" if "utf-8" in m.group(0).lower() else m.group(0),
-            code,
+        html = re.sub(
+            r"(<style\b[^>]*>)([\s\S]*?)(</style>)",
+            style_repl,
+            html,
             flags=re.IGNORECASE,
         )
-        return code
+        html = re.sub(
+            r"(<script\b[^>]*>)([\s\S]*?)(</script>)",
+            script_repl,
+            html,
+            flags=re.IGNORECASE,
+        )
+        return html
 
-    def _remove_whitespace(self, code: str) -> str:
-        code = re.sub(r">\s+<", "><", code)
-        code = "\n".join(line.rstrip() for line in code.split("\n"))
-        code = re.sub(r"(\S)\s{2,}(\S)", r"\1 \2", code)
-        code = re.sub(r"\s+>", ">", code)
-        return code
+    def _strip_comments(self, html: str) -> str:
+        # Preserve conditional comments <!--[if ...]>
+        return re.sub(r"<!--(?!\[if)[\s\S]*?-->", "", html)
 
-    def _shorten_doctype(self, code: str) -> str:
-        code = re.sub(r"<!DOCTYPE[^>]+>", "<!DOCTYPE html>", code, flags=re.IGNORECASE)
-        return code
+    def _optimize_attributes(self, html: str) -> str:
+        def tag_repl(m):
+            tag_content = m.group(0)
 
-    def detect_type(self, content: str, filename: str) -> AssetType:
-        if filename.endswith((".html", ".htm", ".xhtml")):
-            return AssetType.HTML
-        if (
-            content.strip().lower().startswith("<!doctype")
-            or "<html" in content[:1000].lower()
-        ):
-            return AssetType.HTML
-        return AssetType.UNKNOWN
+            # Collapse boolean attributes (e.g. checked="checked" -> checked)
+            for attr in self.BOOLEAN_ATTRIBUTES:
+                tag_content = re.sub(
+                    rf'\b{attr}\s*=\s*["\']?{attr}["\']?',
+                    attr,
+                    tag_content,
+                    flags=re.IGNORECASE,
+                )
+
+            # Remove redundant spaces around = inside tags
+            tag_content = re.sub(r'\s*=\s*(["\'])', r"=\1", tag_content)
+
+            return tag_content
+
+        return re.sub(r"<[a-zA-Z0-9_-]+(\s+[^>]*?)?>", tag_repl, html)
+
+    def _compact_whitespace(self, html: str) -> str:
+        # Collapse multiple whitespace characters into a single space
+        html = re.sub(r"\s+", " ", html)
+
+        # Remove spaces immediately surrounding tags where safe
+        html = re.sub(r">\s+<", "><", html)
+        html = re.sub(r"\s+>", ">", html)
+        html = re.sub(r"<\s+", "<", html)
+
+        return html
+
+    def _shorten_doctype(self, html: str) -> str:
+        return re.sub(
+            r"<!DOCTYPE[^>]*>", "<!DOCTYPE html>", html, count=1, flags=re.IGNORECASE
+        )
+
+    def _restore_verbatim_tags(self, html: str) -> str:
+        for token_id, original in self.literal_table.items():
+            html = html.replace(token_id, original)
+        return html
