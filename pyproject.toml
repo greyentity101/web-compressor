@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "web-compressor-pro"
+version = "2.0.0"
+description = "Production-grade, semantic-preserving web asset compressor for HTML, CSS, and JavaScript"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Mohit Kumar", email = "mohitjat202@gmail.com" }]
+keywords = ["compression", "minification", "html", "css", "javascript", "web"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Text Processing :: Markup :: HTML",
+    "Topic :: Software Development :: Build Tools",
+    "Development Status :: 4 - Beta",
+]
+requires-python = ">=3.9"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.4"]
+
+[project.scripts]
+web-compressor = "cli:main"
+webcompress = "cli:main"
+
+[tool.setuptools]
+py-modules = ["compressor", "js_compressor", "css_compressor", "html_compressor", "cli", "cache", "benchmark"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"

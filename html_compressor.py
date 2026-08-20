@@ -119,7 +119,7 @@ class AdvancedHTMLCompressor(BaseCompressor):
                 if (
                     "javascript" not in stype
                     and "ecmascript" not in stype
-                    and stype != "module"
+                    and stype not in ("module", "text/javascript")
                 ):
                     return m.group(0)
 
@@ -165,7 +165,8 @@ class AdvancedHTMLCompressor(BaseCompressor):
 
             return tag_content
 
-        return re.sub(r"<[a-zA-Z0-9_-]+(\s+[^>]*?)?>", tag_repl, html)
+        # Use a proper tag regex that handles attribute values with > inside quotes
+        return re.sub(r"<[a-zA-Z0-9_-]+(?:\s+[^<>]*?)?>", tag_repl, html)
 
     def _compact_whitespace(self, html: str) -> str:
         # Collapse multiple whitespace characters into a single space

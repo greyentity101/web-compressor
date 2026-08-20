@@ -35,6 +35,7 @@ class CompressionResult:
     elapsed_ms: float
     warnings: List[str] = field(default_factory=list)
     output: str = ""
+    _cached: bool = False
 
 
 class BaseCompressor:
@@ -75,11 +76,13 @@ class BaseCompressor:
 class WebCompressor:
     """Unified facade for web asset compression."""
 
-    def __init__(self, aggressive: bool = True):
+    def __init__(self, aggressive: bool = True, cache: Optional["CompressionCache"] = None, benchmark: Optional["Benchmark"] = None):
         self.aggressive = aggressive
         self._js_compressor = None
         self._css_compressor = None
         self._html_compressor = None
+        self.cache = cache
+        self.benchmark = benchmark
 
     @property
     def js_compressor(self):
@@ -117,6 +120,24 @@ class WebCompressor:
             base = BaseCompressor()
             asset_type = base.detect_type(content, filename)
 
+        asset_key = asset_type.value if asset_type != AssetType.UNKNOWN else "unknown"
+
+        if self.cache is not None:
+            cached = self.cache.get(content, asset_key, self.aggressive)
+            if cached is not None:
+                elapsed_ms = (time.perf_counter() - start_time) * 1000
+                return CompressionResult(
+                    original_size=cached["original_size"],
+                    compressed_size=cached["compressed_size"],
+                    ratio=cached["ratio"],
+                    savings_pct=cached["savings_pct"],
+                    asset_type=asset_type,
+                    elapsed_ms=elapsed_ms,
+                    warnings=cached.get("warnings", []),
+                    output=cached["output"],
+                    _cached=True,
+                )
+
         if asset_type == AssetType.JS:
             compressed, warnings = self.js_compressor.compress(content)
         elif asset_type == AssetType.CSS:
@@ -133,7 +154,7 @@ class WebCompressor:
         ratio = (comp_len / orig_len) if orig_len > 0 else 1.0
         savings_pct = (1.0 - ratio) * 100.0
 
-        return CompressionResult(
+        result = CompressionResult(
             original_size=orig_len,
             compressed_size=comp_len,
             ratio=ratio,
@@ -143,6 +164,33 @@ class WebCompressor:
             warnings=warnings,
             output=compressed,
         )
+
+        if self.cache is not None:
+            self.cache.put(
+                content,
+                asset_key,
+                self.aggressive,
+                {
+                    "original_size": orig_len,
+                    "compressed_size": comp_len,
+                    "ratio": ratio,
+                    "savings_pct": savings_pct,
+                    "warnings": warnings,
+                    "output": compressed,
+                },
+            )
+
+        if self.benchmark is not None:
+            self.benchmark.record({
+                "asset_type": asset_key,
+                "original_size": orig_len,
+                "compressed_size": comp_len,
+                "savings_pct": savings_pct,
+                "elapsed_ms": elapsed_ms,
+                "aggressive": self.aggressive,
+            })
+
+        return result
 
     def compress_file(
         self,

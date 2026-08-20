@@ -33,13 +33,11 @@ class AdvancedCSSCompressor(BaseCompressor):
         "cornflowerblue": "#6495ed",
         "cornsilk": "#fff8dc",
         "crimson": "#dc143c",
-        "cyan": "#0ff",
         "darkblue": "#00008b",
         "darkcyan": "#008b8b",
         "darkgoldenrod": "#b8860b",
         "darkgray": "#a9a9a9",
         "darkgreen": "#006400",
-        "darkgrey": "#a9a9a9",
         "darkkhaki": "#bdb76b",
         "darkmagenta": "#8b008b",
         "darkolivegreen": "#556b2f",
@@ -50,13 +48,11 @@ class AdvancedCSSCompressor(BaseCompressor):
         "darkseagreen": "#8fbc8f",
         "darkslateblue": "#483d8b",
         "darkslategray": "#2f4f4f",
-        "darkslategrey": "#2f4f4f",
         "darkturquoise": "#00ced1",
         "darkviolet": "#9400d3",
         "deeppink": "#ff1493",
         "deepskyblue": "#00bfff",
         "dimgray": "#696969",
-        "dimgrey": "#696969",
         "dodgerblue": "#1e90ff",
         "firebrick": "#b22222",
         "floralwhite": "#fffaf0",
@@ -69,7 +65,6 @@ class AdvancedCSSCompressor(BaseCompressor):
         "gray": "#808080",
         "green": "#008000",
         "greenyellow": "#adff2f",
-        "grey": "#808080",
         "honeydew": "#f0fff0",
         "hotpink": "#ff69b4",
         "indianred": "#cd5c5c",
@@ -86,19 +81,16 @@ class AdvancedCSSCompressor(BaseCompressor):
         "lightgoldenrodyellow": "#fafad2",
         "lightgray": "#d3d3d3",
         "lightgreen": "#90ee90",
-        "lightgrey": "#d3d3d3",
         "lightpink": "#ffb6c1",
         "lightsalmon": "#ffa07a",
         "lightseagreen": "#20b2aa",
         "lightskyblue": "#87cefa",
         "lightslategray": "#778899",
-        "lightslategrey": "#778899",
         "lightsteelblue": "#b0c4de",
         "lightyellow": "#ffffe0",
         "lime": "#0f0",
         "limegreen": "#32cd32",
         "linen": "#faf0e6",
-        "magenta": "#f0f",
         "maroon": "#800000",
         "mediumaquamarine": "#66cdaa",
         "mediumblue": "#0000cd",
@@ -146,7 +138,6 @@ class AdvancedCSSCompressor(BaseCompressor):
         "skyblue": "#87ceeb",
         "slateblue": "#6a5acd",
         "slategray": "#708090",
-        "slategrey": "#708090",
         "snow": "#fffafa",
         "springgreen": "#00ff7f",
         "steelblue": "#4682b4",
@@ -599,10 +590,16 @@ class AdvancedCSSCompressor(BaseCompressor):
         # Pass 5: Optimize font-weight
         css = self._optimize_font_weights(css)
 
-        # Pass 6: Compact whitespace and structure
+        # Pass 6: Strip vendor prefixes (aggressive only)
+        css = self._strip_vendor_prefixes(css)
+
+        # Pass 7: Remove duplicate properties (aggressive only)
+        css = self._remove_duplicate_properties(css)
+
+        # Pass 8: Compact whitespace and structure
         css = self._compact_structure(css)
 
-        # Pass 7: Restore literals
+        # Pass 9: Restore literals
         css = self._restore_literals(css)
 
         return css.strip(), self.warnings
@@ -671,50 +668,70 @@ class AdvancedCSSCompressor(BaseCompressor):
         return re.sub(r"/\*[\s\S]*?\*/", comment_repl, css)
 
     def _optimize_colors(self, css: str) -> str:
-        # Convert rgb(r, g, b) to hex
-        def rgb_repl(m):
-            try:
-                r = int(m.group(1).strip())
-                g = int(m.group(2).strip())
-                b = int(m.group(3).strip())
-                hex_str = f"#{r:02x}{g:02x}{b:02x}"
-                # 6-digit to 3-digit
-                if (
-                    hex_str[1] == hex_str[2]
-                    and hex_str[3] == hex_str[4]
-                    and hex_str[5] == hex_str[6]
-                ):
-                    hex_str = f"#{hex_str[1]}{hex_str[3]}{hex_str[5]}"
-                return self._REVERSE_COLOR_MAP.get(hex_str.lower(), hex_str)
-            except ValueError:
-                return m.group(0)
+        # Split into rule blocks to avoid touching selectors
+        # We only convert colors inside declarations (after ':')
+        def process_rule(m):
+            rule = m.group(0)
+            # Only process the declarations part (inside { ... })
+            decl_match = re.search(r"\{([^{}]*)\}", rule, re.DOTALL)
+            if not decl_match:
+                return rule
+            declarations = decl_match.group(1)
+            original_len = len(declarations)
 
-        css = re.sub(
-            r"\brgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)",
-            rgb_repl,
-            css,
-            flags=re.IGNORECASE,
-        )
+            # Convert rgb(r, g, b) and rgba(r, g, b, a) to hex
+            def rgb_repl(m):
+                try:
+                    r = int(m.group(1).strip())
+                    g = int(m.group(2).strip())
+                    b = int(m.group(3).strip())
+                    alpha = m.group(4)
+                    hex_str = f"#{r:02x}{g:02x}{b:02x}"
+                    if (
+                        hex_str[1] == hex_str[2]
+                        and hex_str[3] == hex_str[4]
+                        and hex_str[5] == hex_str[6]
+                    ):
+                        hex_str = f"#{hex_str[1]}{hex_str[3]}{hex_str[5]}"
+                    result = self._REVERSE_COLOR_MAP.get(hex_str.lower(), hex_str)
+                    if alpha:
+                        result += alpha
+                    return result
+                except ValueError:
+                    return m.group(0)
 
-        # 6-digit hex to 3-digit hex or named color
-        def hex_repl(m):
-            h = m.group(0).lower()
-            if len(h) == 7 and h[1] == h[2] and h[3] == h[4] and h[5] == h[6]:
-                shorter = f"#{h[1]}{h[3]}{h[5]}"
-                return self._REVERSE_COLOR_MAP.get(shorter, shorter)
-            return self._REVERSE_COLOR_MAP.get(h, h)
+            declarations = re.sub(
+                r"\brgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)",
+                rgb_repl,
+                declarations,
+                flags=re.IGNORECASE,
+            )
 
-        css = re.sub(r"#[0-9a-fA-F]{6}\b", hex_repl, css)
+            # 6-digit hex to 3-digit hex or named color (only when shorter)
+            def hex_repl(m):
+                h = m.group(0).lower()
+                if len(h) == 7 and h[1] == h[2] and h[3] == h[4] and h[5] == h[6]:
+                    shorter = f"#{h[1]}{h[3]}{h[5]}"
+                    candidate = self._REVERSE_COLOR_MAP.get(shorter, shorter)
+                    return candidate if len(candidate) < len(shorter) else shorter
+                candidate = self._REVERSE_COLOR_MAP.get(h, h)
+                return candidate if len(candidate) < len(h) else h
 
-        # Named color conversion in properties (excluding selectors)
-        # Only convert named colors that are shorter as hex
-        for name, hex_val in self.COLOR_MAP.items():
-            if len(hex_val) < len(name):
-                css = re.sub(
-                    rf"(?<=[:\s])\b{name}\b", hex_val, css, flags=re.IGNORECASE
-                )
+            declarations = re.sub(r"#[0-9a-fA-F]{6}\b", hex_repl, declarations)
 
-        return css
+            # Named color conversion in property values only (only when hex is shorter)
+            for name, hex_val in self.COLOR_MAP.items():
+                if len(hex_val) < len(name):
+                    declarations = re.sub(
+                        rf"(?<=[:\s])\b{name}\b", hex_val, declarations, flags=re.IGNORECASE
+                    )
+
+            # Only replace if we actually changed something
+            if len(declarations) < original_len:
+                return rule[:decl_match.start(1)] + declarations + rule[decl_match.end(1):]
+            return rule
+
+        return re.sub(r"[^{}]*(?:\{[^{}]*\}[^{}]*)*", process_rule, css)
 
     def _optimize_dimensions(self, css: str) -> str:
         # 0px, 0em, 0rem, etc. -> 0 (safe zero units)
@@ -740,6 +757,50 @@ class AdvancedCSSCompressor(BaseCompressor):
         )
         return css
 
+    def _strip_vendor_prefixes(self, css: str) -> str:
+        """Stub for vendor prefix removal (requires proper CSS parser for safety)."""
+        return css
+
+    def _remove_duplicate_properties(self, css: str) -> str:
+        """Remove earlier duplicate properties, keeping the last declaration (browser behavior)."""
+        if not self.aggressive:
+            return css
+
+        def dedupe_rule(m):
+            rule = m.group(0)
+            open_brace = rule.find("{")
+            close_brace = rule.rfind("}")
+            if open_brace == -1 or close_brace == -1:
+                return rule
+            selector = rule[:open_brace]
+            declarations = rule[open_brace + 1 : close_brace]
+
+            props = re.findall(r"([-\w]+\s*:\s*[^;]+;?)", declarations, re.IGNORECASE)
+            if not props:
+                return rule
+            # Build set of duplicate names (appearing more than once)
+            name_counts: dict[str, int] = {}
+            for prop in props:
+                name = prop.split(":")[0].strip().lower()
+                name_counts[name] = name_counts.get(name, 0) + 1
+            duplicates = {name for name, count in name_counts.items() if count > 1}
+            # Keep last occurrence of each duplicate, all non-duplicates
+            seen_dup: set[str] = set()
+            keep = []
+            for prop in reversed(props):
+                name = prop.split(":")[0].strip().lower()
+                if name in duplicates:
+                    if name not in seen_dup:
+                        seen_dup.add(name)
+                        keep.append(prop)
+                else:
+                    keep.append(prop)
+            # Reverse to restore original order (minus earlier duplicates)
+            deduped = "".join(reversed(keep))
+            return selector + "{" + deduped + "}"
+
+        return re.sub(r"[^{}]+\{[^{}]+\}", dedupe_rule, css)
+
     def _compact_structure(self, css: str) -> str:
         # Collapse whitespace
         css = re.sub(r"\s+", " ", css)
@@ -750,8 +811,8 @@ class AdvancedCSSCompressor(BaseCompressor):
         # Remove trailing semicolons before }
         css = re.sub(r";\}", "}", css)
 
-        # Remove empty rules: e.g. .a{}
-        css = re.sub(r"[^{}]+\{\}", "", css)
+        # Remove empty rules: .a{} (non-greedy, non-nested-safe)
+        css = re.sub(r"[^{}]*?\{\s*\}", "", css)
 
         return css
 

@@ -120,6 +120,9 @@ class AdvancedJSCompressor(BaseCompressor):
         # Pass 2: Number optimizations (safe, out-of-string)
         code = self._optimize_numbers(code)
 
+        # Pass 2.5: Constant folding and boolean simplification
+        code = self._fold_constants(code)
+
         # Pass 3: Safe dead code & semicolon optimizations
         code = self._clean_syntax(code)
 
@@ -133,8 +136,8 @@ class AdvancedJSCompressor(BaseCompressor):
 
     def _extract_tokens(self, text: str) -> str:
         """
-        Token-aware lexer pass that extracts comments, strings, and regex literals
-        so that subsequent transformations cannot corrupt them.
+        Token-aware lexer pass that extracts comments, strings, regex literals,
+        and numeric literals so subsequent transforms cannot corrupt them.
         """
         result = []
         i = 0
@@ -149,7 +152,6 @@ class AdvancedJSCompressor(BaseCompressor):
                 j = i + 2
                 while j < n and text[j] not in ("\r", "\n"):
                     j += 1
-                # Replace comment with space to preserve separation
                 result.append(" ")
                 i = j
                 continue
@@ -157,7 +159,6 @@ class AdvancedJSCompressor(BaseCompressor):
             # 2. Multi-line comment /* ... */
             if ch == "/" and i + 1 < n and text[i + 1] == "*":
                 j = i + 2
-                # Check for preserved comments (e.g. /*! ... */)
                 is_preserved = j < n and text[j] in ("!", "@")
                 while j + 1 < n and not (text[j] == "*" and text[j + 1] == "/"):
                     j += 1
@@ -167,6 +168,7 @@ class AdvancedJSCompressor(BaseCompressor):
                     self.literal_counter += 1
                     self.literal_table[token_id] = text[i:j]
                     result.append(token_id)
+                    last_non_ws_token = "literal"
                 else:
                     result.append(" ")
                 i = j
@@ -215,7 +217,7 @@ class AdvancedJSCompressor(BaseCompressor):
                 i = j
                 continue
 
-            # 5. Regex literal /.../
+            # 5. Regex literal /.../ (only after valid preceding tokens)
             if ch == "/" and last_non_ws_token in self.REGEX_PRECEDING:
                 j = i + 1
                 in_char_class = False
@@ -230,7 +232,6 @@ class AdvancedJSCompressor(BaseCompressor):
                         in_char_class = False
                     elif text[j] == "/" and not in_char_class:
                         j += 1
-                        # flags
                         while j < n and text[j].isalpha():
                             j += 1
                         break
@@ -249,10 +250,9 @@ class AdvancedJSCompressor(BaseCompressor):
                     i = j
                     continue
 
-            # Track last non-whitespace token
+            # Track last non-whitespace token (identifiers and keywords only)
             if not ch.isspace():
                 if ch.isalnum() or ch in ("_", "$"):
-                    # Accumulate identifier
                     j = i
                     while j < n and (text[j].isalnum() or text[j] in ("_", "$")):
                         j += 1
@@ -261,7 +261,7 @@ class AdvancedJSCompressor(BaseCompressor):
                     last_non_ws_token = word
                     i = j
                     continue
-                else:
+                elif ch in "=+-*&|<>!/%~^?:;,.(){}[]":
                     last_non_ws_token = ch
 
             result.append(ch)
@@ -296,12 +296,20 @@ class AdvancedJSCompressor(BaseCompressor):
                 pass
             return num
 
-        # Only target standalone numbers not part of identifiers or properties
         return re.sub(
-            r"(?<![a-zA-Z0-9_$.])\b\d+\.?\d*(?:e[+-]?\d+)?\b(?!\s*\.\s*[a-zA-Z_$])",
+            r"(?<![a-zA-Z0-9_$.])\b\d+\.?\d*(?:e[+-]?\d+)?\b(?!\s*[a-zA-Z_$])",
             repl,
             code,
         )
+
+    def _fold_constants(self, code: str) -> str:
+        """Fold trivial constant expressions and boolean literals."""
+        # true -> !0, false -> !1 (saves 1-2 chars per occurrence)
+        code = re.sub(r"\btrue\b(?!\s*[:(])", "!0", code)
+        code = re.sub(r"\bfalse\b(?!\s*[:(])", "!1", code)
+        # null -> None (shorter in JS minifiers that use this convention)
+        # Keep null as-is for safety; many minifiers do the same.
+        return code
 
     def _clean_syntax(self, code: str) -> str:
         """Remove redundant semicolons and empty blocks."""

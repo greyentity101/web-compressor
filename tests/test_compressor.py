@@ -76,8 +76,8 @@ class TestJSCompressor(unittest.TestCase):
     def test_strict_equality_preserved(self):
         code = "if (x === true) { doSomething(); }"
         res, _ = self.comp.compress(code)
-        self.assertIn("x===true", res)
-        self.assertNotIn("x==true", res)
+        self.assertIn("x===!0", res)
+        self.assertNotIn("x==!0", res)
 
     def test_asi_return_preserved(self):
         code = "return\n'value';"
@@ -377,6 +377,80 @@ class TestDirectoryCompression(unittest.TestCase):
         result = self.wc.compress_file(str(html_file))
         self.assertEqual(result.asset_type, AssetType.HTML)
         self.assertIn("<html><body><h1>Hi</h1></body></html>", result.output)
+
+
+class TestCacheAndBenchmark(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_cache_hit(self):
+        from cache import CompressionCache
+        cache = CompressionCache(cache_dir=Path(self.temp_dir) / "cache")
+        result = {"output": "x=1", "savings_pct": 50.0}
+        cache.put("const x = 1;", "javascript", True, result)
+        cached = cache.get("const x = 1;", "javascript", True)
+        self.assertEqual(cached["output"], "x=1")
+
+    def test_cache_miss(self):
+        from cache import CompressionCache
+        cache = CompressionCache(cache_dir=Path(self.temp_dir) / "cache")
+        cached = cache.get("unknown content", "css", False)
+        self.assertIsNone(cached)
+
+    def test_benchmark_record_and_summary(self):
+        from benchmark import Benchmark
+        bench = Benchmark(log_path=Path(self.temp_dir) / "bench.jsonl")
+        bench.record({"asset_type": "js", "savings_pct": 45.0, "original_size": 100, "compressed_size": 55})
+        bench.record({"asset_type": "css", "savings_pct": 30.0, "original_size": 200, "compressed_size": 140})
+        summary = bench.summary()
+        self.assertEqual(summary["runs"], 2)
+        self.assertIn("js", summary["avg_by_type"])
+        self.assertIn("css", summary["avg_by_type"])
+
+    def test_benchmark_suggest(self):
+        from benchmark import Benchmark
+        bench = Benchmark(log_path=Path(self.temp_dir) / "bench.jsonl")
+        for _ in range(5):
+            bench.record({"asset_type": "js", "savings_pct": 40.0, "aggressive": True})
+        suggestion = bench.suggest_strategy("js")
+        self.assertTrue(suggestion["aggressive"])
+
+
+class TestNewOptimizations(unittest.TestCase):
+    def setUp(self):
+        self.comp = AdvancedJSCompressor(aggressive=True)
+        self.css = AdvancedCSSCompressor(aggressive=True)
+
+    def test_boolean_simplification(self):
+        code = "if (x === true && y === false) { return true; }"
+        res, _ = self.comp.compress(code)
+        self.assertIn("!0", res)
+        self.assertIn("!1", res)
+
+    def test_rgba_to_hex(self):
+        code = "color: rgba(255, 0, 0, 0.5);"
+        res, _ = self.css.compress(code)
+        self.assertIn("rgba(255,0,0,.5)", res)
+
+    def test_duplicate_css_properties_removed(self):
+        code = ".a { color: red; color: blue; margin: 0; }"
+        res, _ = self.css.compress(code)
+        self.assertIn("color:blue", res)
+        self.assertNotIn("color:red", res)
+
+    def test_hex_only_shorter_conversion(self):
+        code = "color: #fff;"
+        res, _ = self.css.compress(code)
+        self.assertIn("#fff", res)
+
+    def test_js_hex_number_preserved(self):
+        code = "const x = 0xFF;"
+        res, _ = self.comp.compress(code)
+        self.assertIn("0xFF", res)
 
 
 if __name__ == "__main__":
